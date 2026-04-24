@@ -9,6 +9,8 @@ const pyBackendUrl = String.fromEnvironment(
   defaultValue: 'http://127.0.0.1:8000',
 );
 
+String get _normalizedBackendUrl => pyBackendUrl.replaceAll(RegExp(r'/+$'), '');
+
 void ensureSupabaseConfigured() {
   if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
     throw Exception(
@@ -68,7 +70,7 @@ Future<Map<String, dynamic>> ingestSourceFile({
 }) async {
   final request = http.MultipartRequest(
     'POST',
-    Uri.parse('$pyBackendUrl/ingest/file'),
+    Uri.parse('$_normalizedBackendUrl/ingest/file'),
   );
   request.files.add(
     http.MultipartFile.fromBytes('file', bytes, filename: filename),
@@ -100,7 +102,7 @@ Future<Map<String, dynamic>> ingestZipArchive({
 }) async {
   final request = http.MultipartRequest(
     'POST',
-    Uri.parse('$pyBackendUrl/ingest/zip'),
+    Uri.parse('$_normalizedBackendUrl/ingest/zip'),
   );
   request.files.add(
     http.MultipartFile.fromBytes('file', bytes, filename: filename),
@@ -127,7 +129,7 @@ Future<Map<String, dynamic>> queryDocuments(
   required String sessionId,
 }) async {
   final res = await http.post(
-    Uri.parse('$pyBackendUrl/query'),
+    Uri.parse('$_normalizedBackendUrl/query'),
     headers: {'Content-Type': 'application/json'},
     body: jsonEncode({
       'question': question,
@@ -154,7 +156,7 @@ Future<Map<String, dynamic>> resetSessionData({
   required String sessionId,
 }) async {
   final res = await http.post(
-    Uri.parse('$pyBackendUrl/session/reset'),
+    Uri.parse('$_normalizedBackendUrl/session/reset'),
     headers: {'Content-Type': 'application/json'},
     body: jsonEncode({'session_id': sessionId}),
   );
