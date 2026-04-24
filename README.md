@@ -20,6 +20,12 @@ flowchart LR
   B --> F
 ```
 
+## Low Level Design
+
+see `frontend_LLD_CLASS_DIAGRAM.md`
+and for flow see `flow.md`
+
+
 ## Deployment Split (Two Repos)
 
 1. Frontend repo:
