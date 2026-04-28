@@ -38,7 +38,11 @@ class RetrievedChunk {
     return RetrievedChunk(
       file: _stringOrDefault(mappedMeta['file'], 'unknown'),
       symbol: _stringOrDefault(mappedMeta['symbol'], '-'),
-      score: _toScore(resultItem['similarity']),
+      score: _toScore(
+        resultItem['similarity'] ??
+            resultItem['score'] ??
+            resultItem['distance'],
+      ),
       confidence: _toConfidence(resultItem),
       startLine: _toInt(mappedMeta['start_line']),
       endLine: _toInt(mappedMeta['end_line']),
@@ -70,13 +74,35 @@ class RetrievedChunk {
 
     final dynamic meta = resultItem['meta'] ?? resultItem['payload'];
     if (meta is Map) {
-      final text = meta['text'] ?? meta['content'];
+      final text = meta['text'] ?? meta['content'] ?? meta['snippet'];
       if (text != null && text.toString().trim().isNotEmpty) {
         return text.toString();
       }
     }
 
-    final text = resultItem['text'] ?? resultItem['content'];
+    final nestedContainers = [
+      resultItem['document'],
+      resultItem['source'],
+      resultItem['_source'],
+    ];
+    for (final container in nestedContainers) {
+      if (container is! Map) {
+        continue;
+      }
+      final nestedMeta = container['meta'] ?? container['payload'] ?? container;
+      if (nestedMeta is Map) {
+        final text =
+            nestedMeta['text'] ??
+            nestedMeta['content'] ??
+            nestedMeta['snippet'];
+        if (text != null && text.toString().trim().isNotEmpty) {
+          return text.toString();
+        }
+      }
+    }
+
+    final text =
+        resultItem['text'] ?? resultItem['content'] ?? resultItem['snippet'];
     if (text != null) {
       return text.toString();
     }
@@ -108,7 +134,7 @@ class RetrievedChunk {
       return 0;
     }
 
-    final similarity = resultItem['similarity'];
+    final similarity = resultItem['similarity'] ?? resultItem['score'];
     if (similarity is num) {
       return similarity.toDouble().clamp(0, 1);
     }

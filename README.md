@@ -1,11 +1,48 @@
 # Codebase QA App
 
-Flutter web app for codebase upload + RAG chat.:
+Flutter web app for codebase upload + RAG chat with enriched chunking and intelligent fallback retrieval.
 
+## Quick Start
 
+### 1. Configure Supabase Credentials
 
-- Frontend: GitHub Pages (Flutter web build)
-- Backend: Render (FastAPI)
+Get your credentials from [Supabase Dashboard](https://supabase.com) → Settings → API:
+- Copy **Project URL** → `SUPABASE_URL`
+- Copy **anon (public) key** → `SUPABASE_ANON_KEY`
+
+Run Flutter with credentials:
+
+**PowerShell (Windows):**
+```powershell
+.\run_with_supabase.ps1 -supabaseUrl "https://your-project.supabase.co" -supabaseAnonKey "sb_publishable_..."
+```
+
+**Bash/Shell (macOS/Linux):**
+```bash
+./run_with_supabase.sh "https://your-project.supabase.co" "sb_publishable_..."
+```
+
+Or use the batch file (Windows):
+```powershell
+.\run_with_supabase.cmd
+```
+
+### 2. Start Backend
+
+```bash
+cd backend
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+### 3. Upload Code & Ask Questions
+
+1. Launch Flutter app
+2. Select a `.py` file or `.zip` archive
+3. Ask specific questions (high similarity) or generic ones (uses fallback + preamble)
+
+For detailed setup, see [ENRICHED_CHUNKING_SETUP.md](ENRICHED_CHUNKING_SETUP.md) and [QUICK_REFERENCE.md](QUICK_REFERENCE.md).
+
+---
 
 ## High-Level Design
 
@@ -55,13 +92,19 @@ Detailed split checklist and env vars:
 
 ## Runtime Constraints
 
-- Retrieval chunk count is fixed at top 3.
-- Question length must be less than 100 words.
+- Retrieval chunk count is fixed at `top_k = 3`
+- Question length must be less than `100 words` 
+- Session cache holds max `200 chunks` per session
+- Session data expires after `1800 seconds` (30 minutes) of inactivity
+- Generic queries intentionally return `0.0` similarity when using fallback cache
+- Fallback chunks are local copies, not re-embedded (fast retrieval)
 
-## Extra Flow Docs
+## Extra Flow Docs & Guides
 
 - Frontend flow: `flow.md`
 - Backend flow: `backend/flow.md`
+- **Setup guide**: `ENRICHED_CHUNKING_SETUP.md` (detailed Supabase config, enrichment, generic queries)
+- **Quick reference**: `QUICK_REFERENCE.md` (quick start, checklists, debug commands)
 
 ## What This App Is
 
@@ -110,6 +153,63 @@ This makes the app useful for:
 - Session memory in the frontend for follow-up questions
 - Reset flow that deletes stored vectors for the active session
 - TTL-based cleanup of expired backend sessions
+
+## New Features: Enriched Chunking & Smart Fallbacks
+
+### Enriched Chunking
+
+Chunks are automatically enhanced with metadata during ingestion:
+
+- **Filename**: Shows which file the code is from
+- **Class/Function Name**: Identifies the symbol
+- **Function Signature**: Captures the function definition line
+- **Line Numbers**: Indicates code location in the file
+- **Language Hint**: Shows programming language context
+
+This metadata helps with retrieval quality and provides better context for generic queries.
+
+### Generic Query Handling
+
+The system automatically detects generic or ambiguous queries like:
+- "what does this code do?"
+- "explain this code"
+- "give me a summary"
+- "how does this work?"
+- "what is this?"
+
+For generic queries:
+1. **Smart Preamble**: "I found X relevant code segments from auth.py including login_user, logout_user..."
+2. **Session Fallback**: Falls back to cached chunks if semantic search returns no results
+3. **Cached Answers**: Provides template responses for common patterns
+
+### Session-Based Fallback & Caching
+
+When semantic search finds no results:
+- Backend automatically uses locally cached chunks from the current session
+- Cache stores up to 200 chunks per session with 30-minute TTL
+- Fallback chunks are returned with `similarity = 0.0` to distinguish from true semantic hits
+- This enables "what does code do?" queries to still provide relevant context
+
+### Query Processing Flow
+
+```
+Question
+    ↓
+Embed (Supabase)
+    ↓
+Semantic Search
+    ├─ Found? → Use with high similarity (80%+)
+    └─ Not found? → Use session cache with preamble
+    ↓
+Detect if generic?
+    ├─ Yes → Add smart preamble ("I found X chunks...")
+    └─ No → Return context as-is
+    ↓
+Send to LLM (Supabase)
+    ↓
+Stream answer to UI
+```
+
 
 ## Tech Stack Used
 
@@ -257,16 +357,45 @@ The main backend endpoints are:
 
 Important environment/config values used by the project include:
 
-- `ENDEE_TOKEN`
-- `ENDEE_INDEX_NAME`
-- `ENDEE_INDEX_SPACE_TYPE`
-- `ENDEE_INDEX_PRECISION`
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_EMBED_FUNCTION`
-- `SESSION_TTL_SECONDS`
-- `MAX_FALLBACK_LINES`
-- frontend `--dart-define` values such as `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `PY_BACKEND_URL`
+### Backend Environment Variables
+
+- `ENDEE_TOKEN` - Token for Endee vector database access
+- `ENDEE_INDEX_NAME` - Name of the Endee index (default: "codebase")
+- `ENDEE_INDEX_SPACE_TYPE` - Distance metric for embeddings (default: "cosine")
+- `ENDEE_INDEX_PRECISION` - Precision level for vectors (default: "INT8")
+- `SUPABASE_URL` - URL of your Supabase project
+- `SUPABASE_ANON_KEY` - Public anon key from Supabase
+- `SUPABASE_EMBED_FUNCTION` - Name of embed function (default: "embed")
+- `SESSION_TTL_SECONDS` - Session expiry time in seconds (default: 1800)
+- `MAX_FALLBACK_LINES` - Max lines per fallback chunk (default: 120)
+
+### Frontend Dart Defines (--dart-define)
+
+Pass these when running Flutter:
+
+```bash
+--dart-define SUPABASE_URL="https://your-project.supabase.co"
+--dart-define SUPABASE_ANON_KEY="sb_publishable_..."
+--dart-define PY_BACKEND_URL="http://127.0.0.1:8000"
+```
+
+Or use the launcher scripts (`run_with_supabase.ps1`, `run_with_supabase.sh`, `run_with_supabase.cmd`) which inject these automatically.
+
+### Generic Query Detection
+
+Backend uses regex patterns to detect generic queries:
+
+- `what\s+does\s+(?:this\s+)?code\s+do` → "what does code do"
+- `explain\s+(?:this\s+)?code` → "explain this code"
+- Queries with ≤2 words also detected as generic
+- Results in smart preamble + session fallback behavior
+
+### Cached Answers
+
+Fallback responses for common patterns:
+
+- **Generic queries**: "I found X relevant code segments from..."
+- **Empty results**: "No matching code segments found. Try asking about specific function/class names..."
 
 ## Why This Architecture Matters
 
@@ -278,3 +407,73 @@ This app separates retrieval from answer generation in a clean way:
 - Endee stores vectors and returns the most semantically relevant code chunks
 
 That separation makes the system easier to deploy, extend, and debug. It also keeps the retrieval layer reusable even if the answer-generation model changes later.
+
+## Troubleshooting
+
+### "Missing SUPABASE_URL or SUPABASE_ANON_KEY"
+
+**Cause**: Flutter app launched without `--dart-define` credentials
+
+**Fix**:
+- Use one of the launcher scripts: `.\run_with_supabase.ps1`, `.\run_with_supabase.sh`, or `.\run_with_supabase.cmd`
+- Or pass credentials manually: 
+  ```bash
+  flutter run --dart-define SUPABASE_URL="..." --dart-define SUPABASE_ANON_KEY="..." -d chrome
+  ```
+
+### Generic Queries Return 0.0 Similarity
+
+**Cause**: Expected behavior for generic query fallback
+
+**Fix**: This is intentional. Generic queries like "what does code do" use session cache with 0.0 similarity. The system compensates with:
+- Smart preamble showing which files/symbols were found
+- Full context retrieved from session cache
+- This allows answers even when semantic match is low
+
+### High Similarity Score Drops Unexpectedly
+
+**Cause**: Enrichment metadata was interfering with embeddings
+
+**Status**: ✅ Fixed in latest version. Embeddings now use raw code text only (no metadata prefixes)
+
+**What to do**:
+1. Backend should auto-reload if using `--reload`
+2. Re-ingest your files (clear old vectors first)
+3. Specific queries should show 80%+ similarity again
+
+### Session Cache Empty After Upload
+
+**Cause**: Cache expires after `SESSION_TTL_SECONDS` (default 30 minutes) or server restarted
+
+**Fix**:
+- Re-upload the file to repopulate cache
+- Check `.session_chunk_cache.json` in backend folder
+- Ensure `SESSION_TTL_SECONDS` env var is set appropriately
+
+### No Chunks Found After Successful Upload
+
+**Cause**: Backend query result parsing issue or session filtering too strict
+
+**Debug**:
+- Check backend logs for: `query session=... retrieved=X`
+- If `retrieved=0`, check if chunks were stored: `.session_manifest.json`
+- Verify session_id matches between frontend and backend
+
+### Flutter App Freezes on Query
+
+**Cause**: SSE stream parsing issue or Supabase function timeout
+
+**Debug**:
+- Check browser console for errors
+- Check backend logs for Supabase function failures
+- Verify `SUPABASE_ANON_KEY` has correct permissions
+
+### Answer Generation Fails Silently
+
+**Status**: ✅ Fixed in latest version. Errors now show in UI with fallback answer
+
+**What happens now**:
+- Chat turn is added to conversation even on error
+- Latest answer is displayed showing error message
+- Status bar shows "answer generation failed"
+- User can still see retrieved chunks

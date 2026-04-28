@@ -148,10 +148,13 @@ class _CodebaseHomePageState extends State<CodebaseHomePage> {
           .map(RetrievedChunk.fromResult)
           .toList(growable: false);
 
-      final context = _retrievedChunks
-          .map((chunk) => chunk.snippet)
-          .where((text) => text.trim().isNotEmpty)
-          .join('\n\n');
+      final contextFromBackend = queryRes['context']?.toString().trim() ?? '';
+      final context = contextFromBackend.isNotEmpty
+          ? contextFromBackend
+          : _retrievedChunks
+                .map((chunk) => chunk.snippet)
+                .where((text) => text.trim().isNotEmpty)
+                .join('\n\n');
 
       final memoryContext = _conversationTurns.isEmpty
           ? ''
@@ -161,13 +164,27 @@ class _CodebaseHomePageState extends State<CodebaseHomePage> {
                 )
                 .join('\n\n');
 
+      final bestSimilarity = _retrievedChunks.isEmpty
+          ? null
+          : _retrievedChunks
+                .map((chunk) => chunk.score)
+                .reduce((best, current) => current > best ? current : best);
+
       if (context.trim().isEmpty) {
         _answer = '';
         _streamingQuestion = '';
         _streamingAnswer = '';
         _contextPreview = '';
-        _retrievedChunks = const [];
-        _setStatus('No chunks found. Upload files first, then try again.');
+        if (_retrievedChunks.isEmpty) {
+          _setStatus('No chunks found. Upload files first, then try again.');
+        } else {
+          final similarityText = bestSimilarity == null
+              ? 'unknown'
+              : bestSimilarity.toStringAsFixed(3);
+          _setStatus(
+            'Retrieved ${results.length} chunk(s) from session $_sessionId, but no snippet text was available. Best similarity: $similarityText',
+          );
+        }
         return;
       }
 
@@ -215,15 +232,26 @@ class _CodebaseHomePageState extends State<CodebaseHomePage> {
         _streamingQuestion = '';
         _streamingAnswer = '';
         _setStatus(
-          'Answer ready. Retrieved ${results.length} chunk(s) from session $_sessionId.',
+          'Answer ready. Retrieved ${results.length} chunk(s) from session $_sessionId. Best similarity: ${bestSimilarity?.toStringAsFixed(3) ?? 'unknown'}.',
         );
       } catch (err) {
         _streamingQuestion = '';
         _streamingAnswer = '';
-        _answer =
+        final fallbackAnswer =
             'AI answer is temporarily unavailable. Retrieved chunks are shown below so you can still inspect relevant code.\n\nError: $err';
+        _answer = fallbackAnswer;
+        _conversationTurns = [
+          ..._conversationTurns,
+          ChatTurn(
+            question: question,
+            answer: fallbackAnswer,
+            timestamp: DateTime.now(),
+            contextPreview: _contextPreview,
+            retrievedCount: results.length,
+          ),
+        ];
         _setStatus(
-          'Retrieved ${results.length} chunk(s) from session $_sessionId, but answer generation failed.',
+          'Retrieved ${results.length} chunk(s) from session $_sessionId, but answer generation failed. Best similarity: ${bestSimilarity?.toStringAsFixed(3) ?? 'unknown'}.',
         );
       }
     });
@@ -581,6 +609,15 @@ class _CodebaseHomePageState extends State<CodebaseHomePage> {
                 ? 'No retrieval context yet.'
                 : _contextPreview,
           ),
+          if (_answer.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Latest answer',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            SelectableText(_answer),
+          ],
           const SizedBox(height: 18),
           Row(
             children: [

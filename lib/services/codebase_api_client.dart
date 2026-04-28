@@ -246,7 +246,18 @@ Future<String> askLlmStream(
       continue;
     }
 
-    final dynamic decoded = jsonDecode(payloadText);
+    if (payloadText == '[DONE]') {
+      continue;
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(payloadText);
+    } catch (_) {
+      // Ignore keepalive or non-JSON SSE packets.
+      continue;
+    }
+
     if (decoded is! Map<String, dynamic>) {
       continue;
     }
