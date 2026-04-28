@@ -53,7 +53,13 @@ class _CodebaseHomePageState extends State<CodebaseHomePage> {
         filename: file.name,
         sessionId: _sessionId,
       );
-      final count = res['chunk_count'] ?? 0;
+      final count = (res['chunk_count'] as num?)?.toInt() ?? 0;
+      if (count == 0) {
+        _setStatus(
+          'Upload succeeded for ${file.name}, but 0 chunks were generated. Check file encoding/content and try a code file with text.',
+        );
+        return;
+      }
       _setStatus(
         'Ingested ${file.name}. Chunks stored: $count (session: $_sessionId)',
       );
@@ -84,7 +90,13 @@ class _CodebaseHomePageState extends State<CodebaseHomePage> {
         filename: file.name,
         sessionId: _sessionId,
       );
-      final count = res['chunk_count'] ?? 0;
+      final count = (res['chunk_count'] as num?)?.toInt() ?? 0;
+      if (count == 0) {
+        _setStatus(
+          'ZIP upload succeeded for ${file.name}, but 0 chunks were generated. Verify the archive contains supported code files.',
+        );
+        return;
+      }
       _setStatus(
         'Ingested ${file.name}. Chunks stored: $count (session: $_sessionId)',
       );
