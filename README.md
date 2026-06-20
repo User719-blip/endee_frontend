@@ -1,3 +1,7 @@
+## deployment link https://user719-blip.github.io/endee_frontend/ 
+
+** backend is down due to inactivity(unpaid tier) **
+
 # Codebase QA App
 
 Flutter web app for codebase upload + RAG chat with enriched chunking and intelligent fallback retrieval.
